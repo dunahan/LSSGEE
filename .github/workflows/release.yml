@@ -1,0 +1,79 @@
+name: Build and Release Arcana
+
+on:
+  push:
+    tags:
+      - 'v*' # Starts the workflow for tags like v1.0, v1.1, etc.
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: arcana-linux
+            output_name: scriptgenerator # Linux does not require a file extension
+          - os: windows-latest
+            artifact_name: arcana-windows
+            output_name: scriptgenerator.exe
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Install Lazarus & FPC
+      uses: gcarreno/setup-lazarus@v3
+      with:
+        lazarus-version: 'stable' # Installs the latest stable version (supports Lazarus 4.x)
+
+    - name: Build Application
+      run: |
+        # If you have modified the structure, update the path to the .lpi file here:
+        lazbuild --build-mode=Release src/Scriptgen.lpi
+
+    - name: Rename Output for Artifacts (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: mv src/scriptgenerator ${{ matrix.output_name }} # Adjust the path where the binary is placed
+
+    - name: Rename Output for Artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      run: ren src\scriptgenerator.exe ${{ matrix.output_name }}
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: ${{ matrix.output_name }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+
+    - name: Package Artifacts
+      run: |
+        mkdir release_files
+        cp ./artifacts/arcana-linux/scriptgenerator ./release_files/arcana-linux-x86_64
+        cp ./artifacts/arcana-windows/scriptgenerator.exe ./release_files/arcana-win64.exe
+        # You could also zip the README or LICENSE here if needed.
+
+    - name: Create Release and Upload Assets
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          release_files/arcana-linux-x86_64
+          release_files/arcana-win64.exe
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
